@@ -1,18 +1,18 @@
-# 🚀 Code-Doctor: AI-Powered GitHub Bug Fixer
+# Code-Doctor: AI-Powered GitHub Bug Fixer
 
 Code-Doctor is an **AI-driven GitHub issue fixer** that automatically detects, analyzes, and fixes bugs in your GitHub repository using **Groq AI**.
 
 ## 🌟 Features
-✅ **Fetch Open GitHub Issues** – Retrieves all issues with valid file paths  
-✅ **AI-Powered Bug Fixing** – Uses **Mixtral-8x7b-32768** for intelligent debugging  
-✅ **Root Cause Analysis** – Explains why the bug occurred  
-✅ **Code Fix & Optimization** – AI-generated fixes with best practices  
-✅ **Branch Selection** – Supports both `main` and `master` branches  
-✅ **PDF Report Generation** – Download a structured fix report  
+**1.Fetch Open GitHub Issues** – Retrieves all issues with valid file paths  
+**2.AI-Powered Bug Fixing** – Uses **Mixtral-8x7b-32768** for intelligent debugging  
+**3.Root Cause Analysis** – Explains why the bug occurred  
+**4.Code Fix & Optimization** – AI-generated fixes with best practices  
+**5.Branch Selection** – Supports both `main` and `master` branches  
+**6.PDF Report Generation** – Download a structured fix report  
 
 ---
 
-## 🔧 Installation
+## Installation
 
 ### 1️⃣ Clone the Repository
 ```bash
@@ -39,7 +39,7 @@ streamlit run app.py
 
 ---
 
-## 📌 Usage
+## Usage
 1. **Enter your GitHub repository link**
 2. **Select the branch (`main` or `master`)**
 3. **Click "Fetch & Fix All Issues"**
@@ -48,7 +48,7 @@ streamlit run app.py
 
 ---
 
-## 💡 Technologies Used
+## Technologies Used
 - **Streamlit** – Web UI  
 - **GitHub API** – Fetches issues & files  
 - **Groq AI (Mixtral-8x7b-32768)** – Code analysis & fixes  
@@ -56,7 +56,7 @@ streamlit run app.py
 
 ---
 
-## 🎯 Contributing
+## Contributing
 Want to improve **Code-Doctor**? Feel free to fork the repo and submit a pull request!
 
 ---
