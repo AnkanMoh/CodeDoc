@@ -169,7 +169,7 @@ if st.button("🔍 Fetch & Fix All Issues"):
                                 st.code(fix_details["Fixed Code"], language="python")
                                 st.markdown(f"### 📝 Explanation\n{fix_details['Explanation']}")
 
-                pdf_output = "/Users/Ankan/Fix_Report.pdf"
+                pdf_output = "/mnt/data/Fix_Report.pdf"
                 pdf.output(pdf_output)
                 st.download_button(label="📥 Download Fix Report PDF", data=open(pdf_output, "rb"), file_name="Fix_Report.pdf", mime="application/pdf")
 
