@@ -2,10 +2,103 @@ import streamlit as st
 import requests
 import base64
 import os
+import re
 from dotenv import load_dotenv
 from groq import Groq
 from fpdf import FPDF
 from functools import lru_cache
+
+
+load_dotenv()
+GITHUB_TOKEN = os.getenv("GITHUB_PAT")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+ANOTHER_LLM_API_KEY = os.getenv("ANOTHER_LLM_API_KEY")  # Add a second LLM API key
+
+if not GITHUB_TOKEN:
+    st.error("❌ GitHub API Token not found. Set 'GITHUB_PAT' in your .env' file.")
+    st.stop()
+if not GROQ_API_KEY:
+    st.error("❌ Groq API Key not found. Set 'GROQ_API_KEY' in your .env' file.")
+    st.stop()
+if not ANOTHER_LLM_API_KEY:
+    st.error("❌ Another LLM API Key not found. Set 'ANOTHER_LLM_API_KEY' in your .env' file.")
+    st.stop()
+
+client = Groq(api_key=GROQ_API_KEY)
+llm_client = Groq(api_key=ANOTHER_LLM_API_KEY)  # Initialize another LLM client
+
+
+def extract_file_path(issue_body, repo_files):
+    """Uses an LLM to extract the file path from the issue description."""
+    try:
+        response = llm_client.chat.completions.create(
+        #     messages=[
+        #         {"role": "system", "content": "You are an AI that extracts file paths from GitHub issue descriptions. Find the file path of the issue to be solved of the GitHub. If the issue explicitly mentions a file path, return only that GitHub file path. If no file path is found, return 'not there'."},
+        #         {"role": "user", "content": f"Extract the complete exact github file path from the following issue description:\n### Issue Description:\n{issue_body}"},
+        #     ],
+        #     model="mixtral-8x7b-32768",
+
+            messages = [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are an AI that extracts file paths from GitHub issue descriptions. "
+                        "Your task is to find and return the exact GitHub file path mentioned in the issue description. "
+                        "The extracted file path must be in the GitHub format, starting with 'https://github.com/' and ending with a valid file extension, such as '.py', '.c', '.cpp', '.js', etc. "
+                        "If no such file path is found in the issue description, return 'not there'. Do not return anything else."
+                    )
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        f"Extract the exact GitHub file path from the following issue description:\n\n"
+                        f"### Issue Description:\n{issue_body}"
+                    )
+                }
+            ],
+            model="mixtral-8x7b-32768",
+        )
+        
+        extracted_code = response.choices[0].message.content.strip()
+        print(extracted_code)
+
+        valid_extensions = [".py", ".cpp", ".js", ".c", ".java", ".txt"]
+        if not extracted_code or not repo_files:
+            return None  
+
+        # # Extract file path from GitHub URL format
+        # github_url_match = re.search(r"https://github\.com/[^/]+/[^/]+/blob/[^/]+/([^#>\s]+)", extracted_code)
+        # if github_url_match:
+        #     file_path = github_url_match.group(1).strip()
+        #     return file_path
+        # # Check if any line in the issue body matches a file in the repository
+        # issue_lines = issue_body.split("\n")  
+        # for line in issue_lines:
+        #     cleaned_line = line.strip()
+        #     for repo_file in repo_files:
+        #         if any(repo_file.endswith(ext) for ext in valid_extensions):
+        #             if cleaned_line in repo_file or cleaned_line == os.path.basename(repo_file):
+        #                 return repo_file  
+
+        # Extract file path from GitHub URL format
+        github_url_match = re.search(r"https://github\.com/[^/]+/[^/]+/blob/[^/]+/([^#>\s]+)", extracted_code)
+        if github_url_match:
+            file_path = github_url_match.group(1).strip()
+
+            if file_path in repo_files:
+                return file_path
+            else:
+                print(f"Extracted GitHub file path '{file_path}' not found in the repository.")            
+            return file_path
+        print("No valid file path found.")
+        
+        return None
+ 
+    except Exception:
+        return None
+
+
+
 
 load_dotenv()
 GITHUB_TOKEN = os.getenv("GITHUB_PAT")
@@ -41,12 +134,37 @@ def fetch_github_issues(owner, repo):
     response = requests.get(url, headers=headers)
     return response.json() if response.status_code == 200 else []
 
+# def fetch_repo_files(owner, repo, branch):
+#     """Fetch all source files from the repo, ignoring directories."""
+#     url = f"https://api.github.com/repos/{owner}/{repo}/git/trees/{branch}?recursive=1"
+#     headers = {"Authorization": f"token {GITHUB_TOKEN}"}
+#     response = requests.get(url, headers=headers)
+#     # print([file for file in response.json().get("tree", [])])
+#     return [file["path"] for file in response.json().get("tree", []) if "path" in file and file["type"] == "blob"] if response.status_code == 200 else []
+
+
+import requests
+
 def fetch_repo_files(owner, repo, branch):
-    """Fetch all source files from the repo, ignoring directories."""
+    """Fetch all source files from the repo, handling pagination properly."""
     url = f"https://api.github.com/repos/{owner}/{repo}/git/trees/{branch}?recursive=1"
     headers = {"Authorization": f"token {GITHUB_TOKEN}"}
     response = requests.get(url, headers=headers)
-    return [file["path"] for file in response.json().get("tree", []) if "path" in file and file["type"] == "blob"] if response.status_code == 200 else []
+
+    if response.status_code != 200:
+        print("Error:", response.status_code, response.json())
+        return []
+
+    tree = response.json().get("tree", [])
+    
+    # Debugging: Check if test/CMakeLists.txt is present
+    for file in tree:
+        if file["path"] == "test/CMakeLists.txt":
+            print("File Found:", file)
+
+    return [file["path"] for file in tree if file["type"] == "blob"]
+
+
 
 @lru_cache(maxsize=10)
 def fetch_github_issues_cached(owner, repo):
@@ -58,24 +176,13 @@ def fetch_repo_files_cached(owner, repo, branch):
     """Fetch repo files with caching."""
     return fetch_repo_files(owner, repo, branch)
 
-def extract_file_path(issue_body, repo_files):
-    """Extract a valid source file path from the issue description."""
-    valid_extensions = [".py", ".cpp", ".js", ".c", ".java"]
-    
-    if not issue_body or not repo_files:
-        return None
 
-    issue_lines = issue_body.split("\n")  
-    for line in issue_lines:  
-        for repo_file in repo_files:
-            if any(repo_file.endswith(ext) for ext in valid_extensions): 
-                if line.strip() in repo_file or line.strip() == os.path.basename(repo_file):  
-                    return repo_file  
-
-    return None
 
 def fetch_buggy_code(owner, repo, file_path, branch):
-    """Fetch buggy file content from GitHub."""
+    """Fetch buggy file content from GitHub using the extracted full file path."""
+    if not file_path:
+        return None
+
     url = f"https://api.github.com/repos/{owner}/{repo}/contents/{file_path}?ref={branch}"
     headers = {"Authorization": f"token {GITHUB_TOKEN}"}
     response = requests.get(url, headers=headers)
@@ -93,48 +200,67 @@ def fetch_buggy_code(owner, repo, file_path, branch):
         st.error(f"❌ Failed to fetch `{file_path}`: {response_data.get('message', 'Unknown error')}")
     return None
 
+
 def is_code_related(issue_body):
     """Check if the issue references a code file or stack trace."""
     if not issue_body: 
         return False
-    keywords = ["error", "exception", "traceback", ".py", ".cpp", ".js", ".c", ".java"]
+    keywords = ["error", "exception", "traceback", ".py", ".cpp", ".js", ".c", ".java", ".txt"]
     return any(keyword in issue_body.lower() for keyword in keywords)
 
-def fix_code_with_ai(code_snippet, language):
-    """Generates AI-powered bug fixes with clear explanations."""
+
+
+def fix_code_with_ai(code_snippet, language, issue_body):
+    """Generates AI-powered bug fixes with clear explanations based on the given GitHub issue."""
     try:
         response = client.chat.completions.create(
             messages=[
-                {"role": "system", "content": "You are an AI that fixes code and suggests optimizations. "
-                                              "Strictly follow this format:\n\n"
-                                              "**Root Cause:** (Clearly explain the issue in one line.)\n\n"
-                                              "**Fixed Code:** (Provide only the corrected code.)\n\n"
-                                              "**Explanation:** (Summarize how the fix solves the issue.)"},
-                {"role": "user", "content": f"Fix this {language} code and provide a direct fix:\n```{code_snippet}```"},
+                {"role": "system", "content": "You are an AI  that fixes code and suggests optimizations and suggest code whenever required. \n"
+                                                  "Strictly follow this format:\n\n"
+                                                  "**Root Cause:** (Clearly explain the issue in one line.)\n\n"
+                                                  "**Fixed Code:** (Provide only the corrected code.)\n\n"
+                                                  "**Explanation:** (Summarize how the fix solves the issue.)"},
+                {"role": "user", "content": f"Fix this {language} code strictly based on the given GitHub issue. \n\n"
+                                              f"### GitHub Issue:\n{issue_body}\n\n"
+                                              f"### Buggy Code:\n```{language}\n{code_snippet}\n```"},
             ],
             model="llama-3.3-70b-versatile",
         )
 
+        # 🔍 Debug: Print full AI response
         ai_response = response.choices[0].message.content.strip()
-        formatted_sections = {"Root Cause": "", "Fixed Code": "", "Explanation": ""}
+        # st.write("### 🔍 Raw AI Response:")
+        # st.code(ai_response, language="markdown")
 
-        for section in ai_response.split("\n\n"):
-            if "**Root Cause:**" in section:
-                formatted_sections["Root Cause"] = section.replace("**Root Cause:**", "").strip()
-            elif "**Fixed Code:**" in section:
-                formatted_sections["Fixed Code"] = section.replace("**Fixed Code:**", "").strip()
-            elif "**Explanation:**" in section:
-                formatted_sections["Explanation"] = section.replace("**Explanation:**", "").strip()
+        # Use regex to extract sections
+        root_cause_match = re.search(r"\*\*Root Cause:\*\*\s*(.*?)\n", ai_response, re.DOTALL)
+        fixed_code_match = re.search(r"\*\*Fixed Code:\*\*\s*```(?:\w+)?\n(.*?)```", ai_response, re.DOTALL)
+        explanation_match = re.search(r"\*\*Explanation:\*\*\s*(.*)", ai_response, re.DOTALL)
 
-        if not formatted_sections["Fixed Code"]:
-            st.warning("⚠️ AI did not generate a fix. Requesting a reattempt...")
-            return fix_code_with_ai(code_snippet, language) 
+        formatted_sections = {
+            "Root Cause": root_cause_match.group(1).strip() if root_cause_match else "Not Found",
+            "Fixed Code": fixed_code_match.group(1).strip() if fixed_code_match else "Not Found",
+            "Explanation": explanation_match.group(1).strip() if explanation_match else "Not Found",
+        }
+
+        # 🔍 Debug: Print extracted sections
+        st.write("### 🛠 Extracted Sections from AI:")
+        st.write(f"**Root Cause:** {formatted_sections['Root Cause']}")
+        st.code(formatted_sections["Fixed Code"], language=language.lower() if language != "Unknown" else "plaintext")
+        st.write(f"**Explanation:** {formatted_sections['Explanation']}")
+
+        # Check if fixed code is missing
+        if formatted_sections["Fixed Code"] == "Not Found":
+            st.warning("⚠️ AI did not generate a fix. Retrying...")
+            return fix_code_with_ai(code_snippet, language, issue_body)  # Retry once
 
         return formatted_sections
 
-    except Exception as e:
+    except Exception as e:  
         st.error(f"❌ AI Error: {e}")
         return None
+
+
 
 if st.button("🔍 Fetch & Fix All Issues"):
     if github_url.strip():
@@ -146,34 +272,72 @@ if st.button("🔍 Fetch & Fix All Issues"):
 
             if issues:
                 repo_files = fetch_repo_files_cached(owner, repo, branch)
-                st.subheader("Processing GitHub Issues")
+                
+                st.subheader("🐞 Processing GitHub Issues")
                 pdf = FPDF()
                 pdf.add_page()
                 pdf.set_font("Arial", size=12)
 
                 filtered_issues = [issue for issue in issues if is_code_related(issue.get("body", ""))]
 
+
+
                 for idx, issue in enumerate(filtered_issues):
+
+                    print('start1')
                     file_path = extract_file_path(issue["body"], repo_files)
+                    
+                    # Extract issue status (open or closed)
+                    issue_status = issue.get("state", "unknown").capitalize()
 
-                    if file_path:
-                        st.markdown(f"### 🔍 Issue {idx+1}: {issue['title']}")
-                        st.write(issue["body"])
-                        st.markdown(f"✅ **Matched File:** `{file_path}`")
+                    st.markdown(f"### 🔍 Issue {idx+1}: {issue['title']} ({issue_status})")
+                    st.write(issue["body"])
+                    print(idx+1)
+                    print('start2')
+                    # Debugging: Print all repo files
+                    # st.write(f"🔍 Available repo files: {repo_files}")
 
-                        buggy_code = fetch_buggy_code(owner, repo, file_path, branch)
-                        if buggy_code:
-                            fix_details = fix_code_with_ai(buggy_code, "Python")
-                            if fix_details:
-                                st.markdown(f"### 🔍 Root Cause\n{fix_details['Root Cause']}")
-                                st.code(fix_details["Fixed Code"], language="python")
-                                st.markdown(f"### 📝 Explanation\n{fix_details['Explanation']}")
+                    # Debugging: Print extracted file path
+                    # if file_path:
+                    #     st.markdown(f"✅ **Matched File:** `{file_path}`")
+                    # else:
+                    #     st.warning(f"⚠️ No matching file found for issue {idx+1}.")
+                    #     continue  # Skip this issue if no file path is found
 
-                pdf_output = "/mnt/data/Fix_Report.pdf"
-                pdf.output(pdf_output)
-                st.download_button(label="📥 Download Fix Report PDF", data=open(pdf_output, "rb"), file_name="Fix_Report.pdf", mime="application/pdf")
+                    if not file_path:
+                        st.warning(f"⚠️ No valid file path found for issue {idx+1}. Skipping to the next issue.")
+                        continue  # Skip to the next issue
+
+                    st.markdown(f"✅ **Matched File:** `{file_path}`")
+
+                    # Fetch buggy code
+                    buggy_code = fetch_buggy_code(owner, repo, file_path, branch)
+
+                    # Detect language from file extension
+                    file_extension = os.path.splitext(file_path)[1].lower()
+                    language_map = {
+                        ".py": "Python", ".cpp": "C++", ".js": "JavaScript",
+                        ".c": "C", ".java": "Java", ".txt": "",
+                    }
+                    language = language_map.get(file_extension, "Unknown")
+
+                    # Debugging: Print extracted code snippet and language
+                    if buggy_code:
+                        st.markdown(f"### 📝 Extracted Code Snippet")
+                        st.code(buggy_code, language=language.lower() if language != "Unknown" else "plaintext")
+                        st.markdown(f"🌍 **Detected Language:** `{language}`")
+
+                        fix_details = fix_code_with_ai(buggy_code, language, issue["body"])
+                        if fix_details:
+                            st.markdown(f"### 🔍 Root Cause\n{fix_details['Root Cause']}")
+                            st.code(fix_details["Fixed Code"], language=language.lower() if language != "Unknown" else "plaintext")
+                            st.markdown(f"### 📝 Explanation\n{fix_details['Explanation']}")
+                    else:
+                        st.warning(f"⚠️ Failed to retrieve the code from `{file_path}`.")
+
+
 
     else:
         st.warning("⚠️ Please enter a GitHub repository link.")
 
-st.markdown("**🚀 Built with ❤️ by Ankan Moh.**")
+st.markdown("**🚀 Built with ❤️ by Ankan Moh, Hanvik S and Sanjay Maj.**")
