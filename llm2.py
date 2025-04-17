@@ -28,75 +28,67 @@ client = Groq(api_key=GROQ_API_KEY)
 llm_client = Groq(api_key=ANOTHER_LLM_API_KEY)  # Initialize another LLM client
 
 
+import difflib
+
 def extract_file_path(issue_body, repo_files):
     """Uses an LLM to extract the file path from the issue description."""
     try:
         response = llm_client.chat.completions.create(
-        #     messages=[
-        #         {"role": "system", "content": "You are an AI that extracts file paths from GitHub issue descriptions. Find the file path of the issue to be solved of the GitHub. If the issue explicitly mentions a file path, return only that GitHub file path. If no file path is found, return 'not there'."},
-        #         {"role": "user", "content": f"Extract the complete exact github file path from the following issue description:\n### Issue Description:\n{issue_body}"},
-        #     ],
-        #     model="mixtral-8x7b-32768",
-
-            messages = [
+            messages=[
                 {
                     "role": "system",
                     "content": (
                         "You are an AI that extracts file paths from GitHub issue descriptions. "
                         "Your task is to find and return the exact GitHub file path mentioned in the issue description. "
                         "The extracted file path must be in the GitHub format, starting with 'https://github.com/' and ending with a valid file extension, such as '.py', '.c', '.cpp', '.js', etc. "
-                        "If no such file path is found in the issue description, return 'not there'. Do not return anything else."
+                        "If no such file path is found in the issue description, return 'not there'."
                     )
                 },
                 {
                     "role": "user",
-                    "content": (
-                        f"Extract the exact GitHub file path from the following issue description:\n\n"
-                        f"### Issue Description:\n{issue_body}"
-                    )
+                    "content": f"Extract the exact GitHub file path from the following issue description:\n\n{issue_body}"
                 }
             ],
             model="mixtral-8x7b-32768",
         )
         
         extracted_code = response.choices[0].message.content.strip()
-        print(extracted_code)
+        print(f"[LLM Output] {extracted_code}")
 
-        valid_extensions = [".py", ".cpp", ".js", ".c", ".java", ".txt"]
         if not extracted_code or not repo_files:
             return None  
 
-        # # Extract file path from GitHub URL format
-        # github_url_match = re.search(r"https://github\.com/[^/]+/[^/]+/blob/[^/]+/([^#>\s]+)", extracted_code)
-        # if github_url_match:
-        #     file_path = github_url_match.group(1).strip()
-        #     return file_path
-        # # Check if any line in the issue body matches a file in the repository
-        # issue_lines = issue_body.split("\n")  
-        # for line in issue_lines:
-        #     cleaned_line = line.strip()
-        #     for repo_file in repo_files:
-        #         if any(repo_file.endswith(ext) for ext in valid_extensions):
-        #             if cleaned_line in repo_file or cleaned_line == os.path.basename(repo_file):
-        #                 return repo_file  
-
-        # Extract file path from GitHub URL format
-        github_url_match = re.search(r"https://github\.com/[^/]+/[^/]+/blob/[^/]+/([^#>\s]+)", extracted_code)
+        # Extract file path from GitHub URL
+        github_url_match = re.search(
+            r"https://github\.com/[^/]+/[^/]+/blob/[^/]+/([^\s`'\"#)>\]]+)", extracted_code
+        )
         if github_url_match:
             file_path = github_url_match.group(1).strip()
+            normalized_file_path = file_path.lower().strip()
+            normalized_repo_files = [f.lower().strip() for f in repo_files]
 
-            if file_path in repo_files:
+            if normalized_file_path in normalized_repo_files:
+                print(f"[✅ Exact Match] {file_path}")
                 return file_path
-            else:
-                print(f"Extracted GitHub file path '{file_path}' not found in the repository.")            
-            return file_path
-        print("No valid file path found.")
-        
-        return None
- 
-    except Exception:
+
+            # Fuzzy match fallback
+            close_matches = difflib.get_close_matches(
+                normalized_file_path, normalized_repo_files, n=1, cutoff=0.6
+            )
+            if close_matches:
+                best_match_index = normalized_repo_files.index(close_matches[0])
+                print(f"[🔍 Fuzzy Match] Closest match: {repo_files[best_match_index]}")
+                return repo_files[best_match_index]
+
+            print(f"[❌ No Match] '{file_path}' not found in repo.")
+            return None
+
+        print("[⚠️ Regex failed] No valid GitHub-style path in LLM output.")
         return None
 
+    except Exception as e:
+        print(f"[❌ Exception] {e}")
+        return None
 
 
 
