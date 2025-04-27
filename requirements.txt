@@ -1,5 +1,9 @@
 streamlit
 requests
 python-dotenv
-groq
+groq           
 fpdf
+javalang
+numpy
+nltk
+rouge
