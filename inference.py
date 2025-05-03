@@ -6,9 +6,9 @@ from difflib import SequenceMatcher, ndiff
 import pandas as pd
 from groq import Groq
 
+
 load_dotenv()
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-
 if not GROQ_API_KEY:
     st.error("❌ Please set GROQ_API_KEY in your .env file.")
     st.stop()
@@ -17,9 +17,20 @@ groq_client = Groq(api_key=GROQ_API_KEY)
 
 st.set_page_config(page_title="Code-Doctor Debug", layout="wide")
 st.title("🔍 Code-Doctor: Evaluation")
-st.caption("Debugging sudden score drops by inspecting prompts & outputs")
+st.caption("Debugging your code")
+
+
+model_options = {
+    "LLaMA 3.3 70B": "llama-3.3-70b-versatile",
+    "Gemma2 9B IT": "gemma2-9b-it",
+    "LLaMA 3 8B 8192": "llama3-8b-8192"
+}
+selected_label = st.selectbox("Choose the Model of choice or Evaluation", list(model_options.keys()))
+selected_model = model_options[selected_label]
+
 
 uploaded_file = st.file_uploader("📁 Upload a ⁠ .jsonl ⁠ file", type=["jsonl"])
+
 
 def compute_similarity(predicted, actual):
     a = predicted.strip().replace(" ", "").replace("\n", "")
@@ -50,10 +61,10 @@ Comment:
 Respond with ONLY the updated code:
 """
 
-def generate_fix(prompt):
+def generate_fix(prompt, model_name):
     try:
         return groq_client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
+            model=model_name,
             messages=[{"role": "user", "content": prompt}]
         ).choices[0].message.content.strip()
     except Exception as e:
@@ -77,9 +88,9 @@ if uploaded_file and st.button("Run Debugging"):
 
         prompt = build_prompt(old, diff, comment)
         if len(prompt.split()) > 1500:
-            st.warning(f"Sample {i+1}: Prompt too long for LLaMA (tokens={len(prompt.split())})")
+            st.warning(f"Sample {i+1}: Prompt too long for {selected_model} (tokens={len(prompt.split())})")
 
-        response = generate_fix(prompt)
+        response = generate_fix(prompt, selected_model)
         if response.startswith("[ERROR]"):
             st.error(f"Sample {i+1}: {response}")
             continue
@@ -97,14 +108,14 @@ if uploaded_file and st.button("Run Debugging"):
             "Prompt Tokens": len(prompt.split())
         })
 
-        with st.expander(f"🧠 Sample {i+1} (Sim: {round(sim*100,2)}%)"):
-            st.markdown("*🧾 Prompt:*")
+        with st.expander(f"Sample {i+1} (Sim: {round(sim*100,2)}%)"):
+            st.markdown("*Prompt:*")
             st.code(prompt)
-            st.markdown("*🔧 Prediction:*")
+            st.markdown("*Prediction:*")
             st.code(cleaned)
-            st.markdown("*✅ Target:*")
+            st.markdown("*Target:*")
             st.code(target)
-            st.markdown("*🧮 Diff:*")
+            st.markdown("*Diff:*")
             st.code(get_diff(target, cleaned), language="diff")
 
     if scores:
@@ -113,3 +124,6 @@ if uploaded_file and st.button("Run Debugging"):
         df = pd.DataFrame(results)
         st.dataframe(df)
         st.download_button("📥 Download Results", df.to_csv(index=False).encode(), file_name="debug_results.csv")
+
+
+st.markdown("**🚀 Built with ❤️ by Ankan Moh, Hanvik S and Sanjay Maj.**")
