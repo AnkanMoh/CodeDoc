@@ -5,5 +5,4 @@ groq
 fpdf
 javalang
 numpy
-nltk
 rouge
